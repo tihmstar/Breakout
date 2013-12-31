@@ -1,0 +1,9 @@
+{
+    "features":{
+    	"68891bae3d4cee5e4c170840729766fd":true
+    },
+    "intervals":{
+    	"timedFetch":15,
+    	"appResumeFetch":0
+    }
+}

@@ -21,6 +21,7 @@
 
 uint64_t gFh = 0;
 unsigned int cb = 0;
+unsigned int installError = 0;
 unsigned int installing = 1;
 
 idevice_t gDevice = NULL;
@@ -307,9 +308,10 @@ void minst_cb(const char *operation, plist_t status, void *unused) {
 		if (nerror) {
 			char *err_msg = NULL;
 			plist_get_string_val(nerror, &err_msg);
-			printf(" Error: %s\n", operation, err_msg);
+			printf("%s [*] Unable to install app. Please reboot your device and try again.%s\n\n", KRED, KNRM);
 			free(err_msg);
 			installing = 0;
+			installError = 1;
 		}
 	} else {
 		printf("%s: called with invalid data!\n", __func__);
@@ -408,11 +410,11 @@ int main(int argc, char *argv[]) {
 	printf(" [*] Attempting to upload original app to /Downloads...\n");
 	char* cwd = realpath(".", NULL);
 	if (cwd != NULL ) {
-		char* app = (char*) malloc(strlen(cwd) + sizeof("resources/wwdc.app") + 2);
+		char* app = (char*) malloc(strlen(cwd) + sizeof("resources/WWDC.app") + 2);
 		strcpy(app, cwd);
 		strcat(app, "/resources/");
-		strcat(app, "wwdc.app");
-		afc_send_directory(gAfc, app, "Downloads/WWDC.app");
+		strcat(app, "WWDC.app");
+		afc_send_directory(gAfc, app, "Downloads/");
 	}
 	
 	printf("%s [*] Successfully uploaded app!%s\n\n", KGRN, KNRM);
@@ -471,6 +473,10 @@ int main(int argc, char *argv[]) {
 	
 	while (installing) {
 		sleep(1);
+	}
+	
+	if (installError) {
+		return -1;
 	}
 	
 	printf("%s [*] Installation proxy successfully installed app!%s\n\n", KGRN, KNRM);
