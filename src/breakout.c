@@ -36,8 +36,7 @@ void printSplash(void) {
 	printf("%sopen-source", KGRN);
 	printf(" %siOS 7 jailbreak.\n", KNRM);
 	printf(" [*] by your friendly neighbourhood hustler, ");
-	printf("%sDarkMalloc%s.\n", KGRN, KNRM);
-	printf("\n");
+	printf("%sDarkMalloc%s.\n\n", KGRN, KNRM);
 }
 
 int afc_send_file(afc_client_t afc, const char* local, const char* remote) {
