@@ -24,6 +24,10 @@ unsigned int cb = 0;
 unsigned int installError = 0;
 unsigned int installing = 1;
 
+char **list = NULL;
+char *tmpDir[100];
+char *stagingString = "install_staging";
+
 idevice_t gDevice = NULL;
 afc_client_t gAfc = NULL;
 lockdownd_client_t gLockdown = NULL;
@@ -281,9 +285,26 @@ afc_error_t afc_receive_file(afc_client_t afc, const char* remote,
 
 void minst_cb(const char *operation, plist_t status, void *unused) {
 	cb++;
+	if (cb == 1) {
+		afc_read_directory(gAfc, "tmp/", &list);
+		if (list) {
+			while (list[0]) {
+				if (strcmp(list[0], ".") && strcmp(list[0], "..")) {
+					if (strncmp(stagingString, list[0], 7) == 0) {
+						strcpy(tmpDir, "tmp/");
+						printf(" [*] Found staging directory: %s\n", list[0]);
+						stagingString = list[0];
+						strcat(tmpDir, stagingString);
+					}
+				}
+				list++;
+			}
+		}
+	}
 	if (cb == 8) {
 		printf(" [*] Injection vector found - ", cb);
 		printf("Injecting exploit...\n");
+		// this is where we'll need to exploit the race condition vulnerability in installd - code to come :)
 	}
 	if (status && operation) {
 		plist_t npercent = plist_dict_get_item(status, "PercentComplete");
@@ -530,7 +551,6 @@ int main(int argc, char *argv[]) {
 	}
 	
 	// check if we actually have access to /tmp
-	char **list = NULL;
 	afcerr = afc_read_directory(gAfc, "tmp/", &list);
 	if (list == NULL) {
 		printf("%s [*] Could not get access to /tmp. Please reboot your device and try again.%s\n\n", KRED, KNRM);
