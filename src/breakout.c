@@ -18,20 +18,18 @@
 #include <libimobiledevice/lockdown.h>
 #include <libimobiledevice/libimobiledevice.h>
 #include <libimobiledevice/installation_proxy.h>
+#include <libimobiledevice/file_relay.h>
 
 uint64_t gFh = 0;
 unsigned int cb = 0;
 unsigned int installError = 0;
 unsigned int installing = 1;
 
-char **list = NULL;
-char *tmpDir[100];
-char *stagingString = "install_staging";
-
 idevice_t gDevice = NULL;
 afc_client_t gAfc = NULL;
 lockdownd_client_t gLockdown = NULL;
 instproxy_client_t gInstproxy = NULL;
+file_relay_client_t gFrc = NULL;
 
 void printSplash(void) {
 	// uses colour macros in breakout.h
@@ -285,26 +283,9 @@ afc_error_t afc_receive_file(afc_client_t afc, const char* remote,
 
 void minst_cb(const char *operation, plist_t status, void *unused) {
 	cb++;
-	if (cb == 1) {
-		afc_read_directory(gAfc, "tmp/", &list);
-		if (list) {
-			while (list[0]) {
-				if (strcmp(list[0], ".") && strcmp(list[0], "..")) {
-					if (strncmp(stagingString, list[0], 7) == 0) {
-						strcpy(tmpDir, "tmp/");
-						printf(" [*] Found staging directory: %s\n", list[0]);
-						stagingString = list[0];
-						strcat(tmpDir, stagingString);
-					}
-				}
-				list++;
-			}
-		}
-	}
 	if (cb == 8) {
 		printf(" [*] Injection vector found - ", cb);
 		printf("Injecting exploit...\n");
-		// this is where we'll need to exploit the race condition vulnerability in installd - code to come :)
 	}
 	if (status && operation) {
 		plist_t npercent = plist_dict_get_item(status, "PercentComplete");
@@ -437,7 +418,7 @@ int main(int argc, char *argv[]) {
 	
 	// we need this for installd to happily install our custom app :)
 	printf(" [*] Downloading code-signed app from Apple...\n");
-	// I don't have net ATM system("curl -b \"downloadKey=expires=1387947603~access=/us/r1000/098/Purple/v4/c3/4e/98/c34e989a-8522-fde0-db2d-884dd3b1302d/mzps6036043982514941651.D2.pd.ipa*~md5=dc91b9d5599eb2e135bddbec3ad5dbc2\" http://a396.phobos.apple.com/us/r1000/098/Purple/v4/c3/4e/98/c34e989a-8522-fde0-db2d-884dd3b1302d/mzps6036043982514941651.D2.pd.ipa -o resources/wwdc.ipa > /dev/null");
+	//	system("curl -b \"downloadKey=expires=1388797203~access=/us/r1000/098/Purple/v4/c3/4e/98/c34e989a-8522-fde0-db2d-884dd3b1302d/mzps6036043982514941651.D2.pd.ipa*~md5=5bb2ef2cc0ee1f435361e121a1ee2514\" http://a396.phobos.apple.com/us/r1000/098/Purple/v4/c3/4e/98/c34e989a-8522-fde0-db2d-884dd3b1302d/mzps6036043982514941651.D2.pd.ipa -o resources/wwdc.ipa > /dev/null");
 	printf("%s [*] Successfully downloaded app!%s\n\n", KGRN, KNRM);
 	
 	// I know this is ugly and definitely not elegant, but it's easy.
@@ -551,6 +532,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	// check if we actually have access to /tmp
+	char **list = NULL;
 	afcerr = afc_read_directory(gAfc, "tmp/", &list);
 	if (list == NULL) {
 		printf("%s [*] Could not get access to /tmp. Please reboot your device and try again.%s\n\n", KRED, KNRM);
@@ -558,6 +540,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	printf("%s [*] Successfully got access to /tmp!%s\n\n", KGRN, KNRM);	
+
 	
 	// replace Downloads/WWDC.app/WWDC with our shebang to launch afcd
 	printf(" [*] Attempting to replace original binary with shebang...\n");
@@ -584,8 +567,88 @@ int main(int argc, char *argv[]) {
 	
 	printf("%s [*] Successfully uploaded gameover.dylib!%s\n\n", KGRN, KNRM);
 	
-	// obviously there's a lot more to implement.
+	//getting caches
+	printf(" [*] Attempting to start file_reay\n");
+	
+	lderr = lockdownd_start_service(gLockdown, "com.apple.mobile.file_relay", &port);
+	
+	if (lderr != LOCKDOWN_E_SUCCESS) {
+		printf("%s [*] Unable to start file_relay service! %s\n", KRED, KNRM);
+		lockdownd_client_free(gLockdown);
+		idevice_free(gDevice);
+		return -1;
+	}
+	printf("%s [*] Successfully started file_relay service!%s\n\n", KGRN, KNRM);
+	
+	
+	if (gLockdown) {
+		lockdownd_client_free(gLockdown);
+		gLockdown = NULL;
+	}
+	
+	file_relay_error_t frcerr = 0;
+	
+	frcerr = file_relay_client_new(gDevice, port, &gFrc);	
+	
+	if (frcerr != FILE_RELAY_E_SUCCESS) {
+		printf("could not connect to file_relay service!\n");
+		lockdownd_client_free(gLockdown);
+		idevice_free(gDevice);
+		return -1;
+	}
+	
+	
+	idevice_connection_t dump = NULL;
+	const char *sources[] = {"Caches", NULL};
+	
+	printf(" [*] Attempting to get Caches \n");
+	
+	if (file_relay_request_sources(gFrc, sources, &dump) != FILE_RELAY_E_SUCCESS) {
+		printf("could not get Caches\n");
+		file_relay_client_free(gFrc);
+		lockdownd_client_free(gLockdown);
+		idevice_free(gDevice);
+		return -1;
+	}
+	
+	if (!dump) {
+		printf("did not get connection!\n");
+		file_relay_client_free(gFrc);
+		lockdownd_client_free(gLockdown);
+		idevice_free(gDevice);
+		return -1;
+	}
+	
+	uint32_t cnt = 0;
+	uint32_t len = 0;
+	char buf[4096];
+	FILE *f = fopen("resources/caches.cpio.gz", "w");
+	setbuf(stdout, NULL);
+	printf(" [*] Receiving Caches ... pls wait");
+	while (idevice_connection_receive(dump, buf, 4096, &len) == IDEVICE_E_SUCCESS) {
+		fwrite(buf, 1, len, f);
+		cnt += len;
+		len = 0;
+	}
+	printf("\n");
+	fclose(f);
+	printf("%s [*] Total size received: %d\n\n %s", KGRN,cnt, KNRM);
+	
+	
+	//unpacking caches
+	
+	system("mkdir resources/extracted > /dev/null");
+	system("tar -C resources/extracted -xvf resources/caches.cpio.gz > /dev/null");
+	system("mv resources/extracted/var/mobile/Library/Caches/com.apple.mobile.installation.plist resources/");
+	system("mv resources/extracted/var/mobile/Library/Caches/com.apple.LaunchServices-055.csstore resources/");
+	
+	//not finished here
+	system("rm -rf resources/extracted/ resources/caches.cpio.gz > /dev/null");	
 		
+	
+	// obviously there's a lot more to implement.
+	printf("That runned successfully for now yey :D\n");
+	
 	return 0;
 	
 }
