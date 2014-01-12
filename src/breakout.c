@@ -55,6 +55,25 @@ char fooS[60];
 char fooSOld[60];
 char fooSNew[60];
 
+//
+
+static void free_dictionary(char **dictionary)
+{
+    int i = 0;
+    
+    if (!dictionary)
+        return;
+    
+    for (i = 0; dictionary[i]; i++) {
+        free(dictionary[i]);
+    }
+    free(dictionary);
+}
+
+
+
+//
+
 void printSplash(void) {
 	// uses colour macros in breakout.h
 	printf("\n");
@@ -305,9 +324,10 @@ afc_error_t afc_receive_file(afc_client_t afc, const char* remote,
 	return err;
 }
 
-void minst_cb(const char *operation, plist_t status, int *unused) {
-	cb++;
-	if (cb == 1) {
+void minst_cb(const char *operation, plist_t status, int *exloit) {
+    cb++;
+	printf("cb=%d exploit=%d \n",cb,exploit);
+    if (cb == 1) {
 		afc_read_directory(gAfc, "tmp/", &list);
 		if (list) {
 			while (list[0]) {
@@ -445,18 +465,18 @@ void performSanityChecks() { //this doesnt work at all :(
 	printf(" [*] Performing sanity checks...\n");
 		
 	afcerr = afc_read_directory(gAfc, "/Downloads/WWDC.app", &list);
-	if (afcerr != AFC_E_SUCCESS) {
-		afc_remove_path(gAfc, "/Downloads/WWDC.app/");
+	if (!(afcerr != AFC_E_SUCCESS)) {
+		afc_remove_directory(gAfc, "/Downloads/WWDC.app",1);
 	}
 
     afcerr = afc_read_directory(gAfc, "/Downloads/a", &list);
-	if (afcerr != AFC_E_SUCCESS) {
-        afc_remove_path(gAfc, "/Downloads/a");
+	if (!(afcerr != AFC_E_SUCCESS)) {
+        afc_remove_directory(gAfc, "/Downloads/a",1);
 	}
 	
 	afcerr = afc_read_directory(gAfc, "/Breakout-Install", &list);
-	if (afcerr != AFC_E_SUCCESS) {
-		afc_remove_path(gAfc, "/Breakout-Install");
+	if (!(afcerr != AFC_E_SUCCESS)) {
+		afc_remove_directory(gAfc, "/Breakout-Install",1);
 	}
 	
 	printf("%s [*] Sanity checks complete!!%s\n\n", KGRN, KNRM);
@@ -557,13 +577,13 @@ int startInstallationProxy() {
 	return 0;
 }
 
-int installIPA(char *ipaLocation, int explt) {
+int installIPA(char *ipaLocation, int exploit) {
 	// installs our modified ipa for us, thanks installd
 	printf(" [*] Requesting installation proxy to install custom app...\n");
-	cb =0;
+    
     plist_t opts = instproxy_client_options_new();
-    exploit = explt;
-	ie = instproxy_install(instproxy, ipaLocation, opts, &minst_cb, NULL);
+	
+    ie = instproxy_install(instproxy, ipaLocation, opts, &minst_cb, &exploit);
 	if (ie != INSTPROXY_E_SUCCESS && exploit != 1) {
 		printf("%s [*] Installation proxy could not install app %d. Please reboot your device and try again.%s\n\n", KRED, ie, KNRM);
 		instproxy_client_options_free(opts);
@@ -575,17 +595,13 @@ int installIPA(char *ipaLocation, int explt) {
 		sleep(1);
 	}
 	
-	if (installError && exploit != 1) {
+	if (installError && exploit >= 1) {
 		return -1;
 	}
-	
-    printf(" [*] Cleaning up instproxy \n");
+    
+    printf(" [*] Cleaning up instaproxy \n");
     instproxy_client_options_free(opts);
     instproxy_client_free(instproxy);
-    
-    opts = NULL;
-    instproxy = NULL;
-    
     
 	printf("%s [*] Installation proxy successfully installed app!%s\n\n", KGRN, KNRM);
 	return 0;
@@ -915,7 +931,6 @@ int main(int argc, char *argv[]) {
 	// just in case Breakout has been run before, we don't want any issues arising from old/new files.
 	performSanityChecks(); //this doesnt work at all :(                                            ####
 	
-    
 	// create our storage dir and upload requires files etc.	
 	if (preflightBreakout() != 0) {
 		return -1;
@@ -993,16 +1008,31 @@ int main(int argc, char *argv[]) {
 
 	//race condition exploit :P
      //you need to fix minst_cb not called second time                                   ####
-     //that means you acn either inject breakout.ipa or exploit race condition :(        ####
+     //that means you can either inject breakout.ipa or exploit race condition :(        ####
+    if (startLockdownd() != 0) {
+		return -1;
+	}
+    if (startInstallationProxy() != 0) {
+		return -1;
+	}
 	printf(" [*] Trying to exploit race condition (1/2)\n");
 	if (installIPA("Breakout-Install/pkg.zip",1) !=0){
+		return -1;
+	}
+    if (startInstallationProxy() != 0) {
 		return -1;
 	}
     printf(" [*] Trying to exploit race condition (2/2)\n");
 	if (installIPA("Breakout-Install/pkg.zip",2) !=0){
 		return -1;
 	}
-     
+    if (freeLockdown() != 0) {
+		return -1;
+	}
+    
+    
+    return 0;
+    
     //rebooting + waiting to reconnect
     if (rebootDevice() != 0) {
         printf("%s [*] Error rebooting device, please disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
@@ -1018,7 +1048,7 @@ int main(int argc, char *argv[]) {
 	printf(" [*] Device found! Continuing\n\n");
 	
 	//connect to hack afcd
-    connectAFCHack(1);
+    connectAFCHack(1); //tell user to tap the app
     
     if (symlinkRdisk() != 0) {
         return -1;
