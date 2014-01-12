@@ -802,10 +802,11 @@ int rebootDevice(){
 		idevice_free(gDevice);
 		return -1;
 	}
+    
     //give it time to disconnect, before trying to reconnect
     printf(" [*] Rebooting device ...\n");
     sleep(30);
-
+    
     return 0;
 }
 
@@ -828,6 +829,8 @@ int connectAFCHack(int tapIcon){
     printf(" [*] Waiting for AFCHack service ...\n");
     if (tapIcon == 1) {
         printf(" [*] Please tap the \"Breakout\" icon to continue ...\n");
+    }else{
+        printf(" [*] Please unlock your device to continue ...\n");
     }
     port->port = 8888;
     while (1) {
@@ -854,6 +857,30 @@ int freeLockdown() {
     return 0;
 }
 
+int symlinkRdisk() {
+    
+    afcerr = afc_rename_path(gAfc, "/var/mobile/Library/Logs/AppleSupport", "/var/mobile/Library/Logs/AppleSupport.orig");
+    if (afcerr != AFC_E_SUCCESS) {
+        printf("%s [*] Could not rename AppleSupport -> AppleSupport.orig - deleting AppleSupport%s\n", KRED, KNRM);
+        afc_remove_path(gAfc, "/var/mobile/Library/Logs/AppleSupport");
+    }
+    printf(" [*] Creating symlink to chown rdisk\n");
+    if (deviceSymlink("../../../../../dev/rdisk0s1s1", "/var/mobile/Library/Logs/AppleSupport") != 0) {
+		return -1;
+	}
+}
+
+int AFCHackAutoLaunch(){
+    printf(" [*] Telling applicationState to autolaunch AFCHack\n");
+    
+    afcerr = afc_send_file(gAfc, "resources/applicationState.plist", "/var/mobile/Library/BackBoard/applicationState.plist");
+    if (afcerr != AFC_E_SUCCESS) {
+        printf("%s [*] Error uploading applicationState.plist\n%s",KRED,KNRM);
+        return -1;
+    }
+
+    
+}
 
 int main(int argc, char *argv[]) {
 	
@@ -975,26 +1002,56 @@ int main(int argc, char *argv[]) {
 	if (installIPA("Breakout-Install/pkg.zip",2) !=0){
 		return -1;
 	}
+     
+    //rebooting + waiting to reconnect
+    if (rebootDevice() != 0) {
+        printf("%s [*] Error rebooting device, please disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
+        sleep(20);
+    }
+    
+    
+    
+    printf(" [*] Waiting for the device to reconnect...\n");
+	while (deviceConnect() != 0) {
+		sleep(1);
+	}
+	printf(" [*] Device found! Continuing\n\n");
+	
+	//connect to hack afcd
+    connectAFCHack(1);
+    
+    if (symlinkRdisk() != 0) {
+        return -1;
+    }
+    
+    if (AFCHackAutoLaunch() != 0) {
+        return -1;
+    }
+    
     //rebooting
     if (rebootDevice() != 0) {
         printf("%s [*] Error rebooting device, please disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
         sleep(20);
     }
     
-
     printf(" [*] Waiting for the device to reconnect...\n");
 	while (deviceConnect() != 0) {
 		sleep(1);
 	}
 	printf(" [*] Device found! Continuing\n\n");
-
 	
-	//connect to hack afcd
-    connectAFCHack(1);
     
+    connectAFCHack(0); //don't tell user to tap the app
 	
-	// obviously there's a lot more to implement.
+    
+    
+	// Now the userland portion is almost finished
+    // have fun writing your untether binary to the BlockDevice (rdisk0s1s1) :P
+    // i will create a Cydia.tar Payload to clean everything up :D
 	
+    
+    
+    
     printf("%s [*] No errors yey :D!%s\n", KGRN, KNRM);
 	return 0;
 	printf("%s [*] Breakout is complete, you should now have a fully working jailbreak! Enjoy!%s\n", KGRN, KNRM);
