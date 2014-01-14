@@ -28,7 +28,7 @@ uint64_t gFh = 0;
 unsigned int cb = 0;
 unsigned int installError = 0;
 unsigned int installing = 1;
-int exploit;
+unsigned int exploit;
 
 char *udid;
 char **list = NULL;
@@ -324,7 +324,7 @@ afc_error_t afc_receive_file(afc_client_t afc, const char* remote,
 	return err;
 }
 
-void minst_cb(const char *operation, plist_t status, int *exloit) {
+void minst_cb(const char *operation, plist_t status, int *unused) {
     cb++;
 	printf("cb=%d exploit=%d \n",cb,exploit);
     if (cb == 1) {
@@ -577,10 +577,10 @@ int startInstallationProxy() {
 	return 0;
 }
 
-int installIPA(char *ipaLocation, int exploit) {
+int installIPA(char *ipaLocation, int explt) {
 	// installs our modified ipa for us, thanks installd
 	printf(" [*] Requesting installation proxy to install custom app...\n");
-    
+	exploit = explt;
     plist_t opts = instproxy_client_options_new();
 	
     ie = instproxy_install(instproxy, ipaLocation, opts, &minst_cb, &exploit);
