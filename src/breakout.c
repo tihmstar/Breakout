@@ -583,7 +583,7 @@ int installIPA(char *ipaLocation, int explt) {
 	exploit = explt;
     plist_t opts = instproxy_client_options_new();
 	
-    ie = instproxy_install(instproxy, ipaLocation, opts, &minst_cb, &exploit);
+    ie = instproxy_install(instproxy, ipaLocation, opts, &minst_cb, NULL);
 	if (ie != INSTPROXY_E_SUCCESS && exploit != 1) {
 		printf("%s [*] Installation proxy could not install app %d. Please reboot your device and try again.%s\n\n", KRED, ie, KNRM);
 		instproxy_client_options_free(opts);
