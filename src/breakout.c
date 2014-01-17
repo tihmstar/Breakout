@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 
 #include <breakout.h>
+#include <plistedit.h>
 
 #include <libimobiledevice/afc.h>
 #include <libimobiledevice/lockdown.h>
@@ -474,18 +475,23 @@ void performSanityChecks() { //this doesnt work at all :(
 	printf(" [*] Performing sanity checks...\n");
 		
 	afcerr = afc_read_directory(gAfc, "/Downloads/WWDC.app", &list);
-	if (!(afcerr != AFC_E_SUCCESS)) {
+	if (afcerr == AFC_E_SUCCESS) {
+        printf(" [*] Removing WWDC.app\n");
 		afc_remove_directory(gAfc, "/Downloads/WWDC.app",1);
 	}
-
+    afcerr = NULL;
+    list = NULL;
     afcerr = afc_read_directory(gAfc, "/Downloads/a", &list);
-	if (!(afcerr != AFC_E_SUCCESS)) {
+	if (afcerr == AFC_E_SUCCESS) {
+        printf(" [*] Removing a/a...\n");
         afc_remove_directory(gAfc, "/Downloads/a",1);
 	}
-	
+    afcerr = NULL;
+    list = NULL;
 	afcerr = afc_read_directory(gAfc, "/Breakout-Install", &list);
-	if (!(afcerr != AFC_E_SUCCESS)) {
+	if (afcerr == AFC_E_SUCCESS) {
 		afc_remove_directory(gAfc, "/Breakout-Install",1);
+        printf(" [*] Removing Breakout-Install\n");
 	}
 	
 	printf("%s [*] Sanity checks complete!!%s\n\n", KGRN, KNRM);
@@ -674,7 +680,7 @@ int placeShebang() {
 int uploadGameover() {
 	// upload gameover.dylib - when loaded, doesn't init sandbox for afcd
 	printf(" [*] Attempting to upload gameover.dylib...\n");
-	afcerr = afc_send_file(gAfc, "resources/gameover.dylib", "Downloads/WWDC.app/");
+	afcerr = afc_send_file(gAfc, "resources/gameover.dylib", "Downloads/WWDC.app/gameover.dylib");
 	if (afcerr != AFC_E_SUCCESS) {
 		printf("%s [*] Could not upload gameover.dylib. Please reboot your device and try again.%s\n\n", KRED, KNRM);
 		return -1;
@@ -759,7 +765,8 @@ int grabCaches() {
 	system("tar -C resources/extracted -xvf resources/caches.cpio.gz &> /dev/null");
 	system("mv resources/extracted/var/mobile/Library/Caches/com.apple.mobile.installation.plist . > /dev/null");
 	system("mv resources/extracted/var/mobile/Library/Caches/com.apple.LaunchServices*.csstore . > /dev/null");
-	system("echo \"\" > com.apple.LaunchServices-055.csstore");
+	//system("echo \"\" > com.apple.LaunchServices-054.csstore");
+    system("for f in ./com.apple.LaunchServices-*.csstore; do echo > $f; done");
 	system("rm -rf resources/extracted/ resources/caches.cpio.gz > /dev/null");
 	printf("%s [*] Successfully unpacked caches!\n\n%s", KGRN, KNRM);
 	return 0;
@@ -823,10 +830,14 @@ int rebootDevice(){
 		idevice_free(gDevice);
 		return -1;
 	}
-    
+    lockdownd_client_free(gLockdown);
+    afc_client_free(gAfc);
+    idevice_free(gDevice);
+    diagerr = diagnostics_relay_client_free(gDiag);
+    //printf(" [*] Freeing diags %d\n",diagerr);
     //give it time to disconnect, before trying to reconnect
     printf(" [*] Rebooting device ...\n");
-    sleep(30);
+    sleep(40);
     
     return 0;
 }
@@ -859,7 +870,7 @@ int connectAFCHack(int tapIcon){
         if (!(afcerr != AFC_E_SUCCESS)) {
             break;
         }
-        sleep(3);
+        sleep(1);
     }
     printf("%s [*] Successfully connected to AFCHack client %s\n\n",KGRN,KNRM);
     
@@ -903,19 +914,26 @@ int AFCHackAutoLaunch(){
     
 }
 
+int editCaches(){
+    
+    char *path = "./com.apple.mobile.installation.plist";
+    doStuff(path, path);
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
 	
 	// let's clean this up a little bit.
 	printSplash();
    
-    
+    /*
 	// attempt to connnect to device (using libimobiledevice)...
     printf(" [*] Attempting to connect to device...\n");
 	if (deviceConnect() != 0) {
         printf("%s [*] Unable to connect to device. Check your device is plugged in and turned on.%s\n\n", KRED, KNRM);
 		return -1;
 	}
-     
+    
 	// start lockdownd client.
 	if (startLockdownd() != 0) {
 		return -1;
@@ -932,7 +950,7 @@ int main(int argc, char *argv[]) {
 	if (connectAFC() != 0) {
 		return -1;
 	}
-		
+	
 	// just in case Breakout has been run before, we don't want any issues arising from old/new files.
 	performSanityChecks();
 	
@@ -984,7 +1002,7 @@ int main(int argc, char *argv[]) {
 	if (uploadGameover() != 0) {
 		return -1;
 	}
-	
+
 	// reconnect to lockdownd
 	if (startLockdownd() != 0) {
 		return -1;
@@ -1000,10 +1018,10 @@ int main(int argc, char *argv[]) {
 	if (grabCaches() != 0) {
 		return -1;
 	}
-
-	//you need to modify the caches and add the values here                              ####
-	//                                                                                   ####
-	//
+    
+    if (editCaches() != 0) {
+		return -1;
+	}
 
     if (putCaches() != 0) {
 		return -1;
@@ -1033,7 +1051,7 @@ int main(int argc, char *argv[]) {
         printf("%s [*] Error rebooting device, please disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
         sleep(20);
     }
-    
+    */
     printf(" [*] Waiting for the device to reconnect...\n");
 	while (deviceConnect() != 0) {
 		sleep(1);
@@ -1053,8 +1071,8 @@ int main(int argc, char *argv[]) {
     
     //rebooting
     if (rebootDevice() != 0) {
-        printf("%s [*] Error rebooting device, please disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
-        sleep(20);
+        printf("%s [*] Error rebooting device, please quickly disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
+        sleep(100);
     }
     
     printf(" [*] Waiting for the device to reconnect...\n");
