@@ -139,6 +139,9 @@ DBUG(dict1);
 plist_t string = plist_new_string("/private/var/mobile/Media/Downloads/WWDC.app/gameover.dylib");
 DBUG(string);
 plist_dict_insert_item(envPos, "DYLD_INSERT_LIBRARIES", string);
+plist_dict_remove_item(envPos, "CFFIXED_USER_HOME");
+plist_dict_remove_item(envPos, "HOME");
+plist_dict_remove_item(envPos, "TMPDIR");
     
     char *unused = NULL;
     free(unused);

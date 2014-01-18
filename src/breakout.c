@@ -427,6 +427,7 @@ int deviceConnect() {
 	}
 	
 	printf("%s [*] Successfully connected to device with UDID: %s!%s\n\n", KGRN, udid, KNRM);
+	sleep(1);
 	return 0;
 }
 
@@ -457,7 +458,7 @@ int startAFC() {
 }
 
 int connectAFC() {
-	// create an AFC client .
+	// create an AFC client
 	printf(" [*] Attempting to create a new AFC client...\n");
 	afcerr = afc_client_new(gDevice, port, &gAfc);
 	if (afcerr != AFC_E_SUCCESS) {
@@ -803,12 +804,13 @@ int putCaches() {
 }
 
 int rebootDevice(){
-    printf(" [*] Attempting to reboot the device ...\n");
+	
+	printf(" [*] Attempting to reboot the device ...\n");
     if (startLockdownd() != 0) {
         printf("%s [*] Error starting Lockdownd %s\n",KRED,KNRM);
 		return -1;
 	}
-
+	
 	lderr = lockdownd_start_service(gLockdown, "com.apple.mobile.diagnostics_relay", &port);
 	if (lderr != LOCKDOWN_E_SUCCESS) {
 		printf("%s [*] Error starting diags service%s\n", KRED, KNRM);
@@ -830,11 +832,13 @@ int rebootDevice(){
 		idevice_free(gDevice);
 		return -1;
 	}
-    lockdownd_client_free(gLockdown);
-    afc_client_free(gAfc);
-    idevice_free(gDevice);
+	
+	//lderr = lockdownd_client_free(gLockdown);
     diagerr = diagnostics_relay_client_free(gDiag);
-    //printf(" [*] Freeing diags %d\n",diagerr);
+	//printf(" [*] Freeing diags %d\n",diagerr);
+	//port = NULL;
+	//gDevice = NULL; 
+	gDiag = NULL;
     //give it time to disconnect, before trying to reconnect
     printf(" [*] Rebooting device ...\n");
     sleep(40);
@@ -851,9 +855,6 @@ int connectAFCHack(int tapIcon){
 	
 	// start AFC service on lockdownd to create port struct
 	if (startAFC() != 0) {
-		return -1;
-	}
-    if (freeLockdown() != 0) {
 		return -1;
 	}
     
@@ -874,7 +875,9 @@ int connectAFCHack(int tapIcon){
     }
     printf("%s [*] Successfully connected to AFCHack client %s\n\n",KGRN,KNRM);
     
-
+	if (freeLockdown() != 0) {
+		return -1;
+	}
     
     return 0;
 }
@@ -890,20 +893,23 @@ int freeLockdown() {
 }
 
 int symlinkRdisk() {
-    
+    printf(" [*] Creating symlink to chown rdisk\n");
     afcerr = afc_rename_path(gAfc, "/var/mobile/Library/Logs/AppleSupport", "/var/mobile/Library/Logs/AppleSupport.orig");
     if (afcerr != AFC_E_SUCCESS) {
         printf("%s [*] Could not rename AppleSupport -> AppleSupport.orig - deleting AppleSupport%s\n", KRED, KNRM);
         afc_remove_path(gAfc, "/var/mobile/Library/Logs/AppleSupport");
     }
-    printf(" [*] Creating symlink to chown rdisk\n");
+    
     if (deviceSymlink("../../../../../dev/rdisk0s1s1", "/var/mobile/Library/Logs/AppleSupport") != 0) {
+		printf("%s [*] Error creating symlink to chown rdisk\n%s",KRED,KNRM);
 		return -1;
 	}
+	printf("%s [*] Successfully created symlink to chown rdisk\n%s",KGRN,KNRM);
+	return 0;
 }
 
 int AFCHackAutoLaunch(){
-    printf(" [*] Telling applicationState to autolaunch AFCHack\n");
+    printf(" [*] Telling applicationState to autolaunch AFCHack\n\n");
     
     afcerr = afc_send_file(gAfc, "resources/applicationState.plist", "/var/mobile/Library/BackBoard/applicationState.plist");
     if (afcerr != AFC_E_SUCCESS) {
@@ -911,7 +917,7 @@ int AFCHackAutoLaunch(){
         return -1;
     }
 
-    
+    return 0;
 }
 
 int editCaches(){
@@ -925,8 +931,8 @@ int main(int argc, char *argv[]) {
 	
 	// let's clean this up a little bit.
 	printSplash();
-   
-    /*
+   /*
+    
 	// attempt to connnect to device (using libimobiledevice)...
     printf(" [*] Attempting to connect to device...\n");
 	if (deviceConnect() != 0) {
@@ -1045,7 +1051,7 @@ int main(int argc, char *argv[]) {
 	if (installIPA("Breakout-Install/pkg2.zip",2) !=0){
 		return -1;
 	}
-
+	
     //rebooting + waiting to reconnect
     if (rebootDevice() != 0) {
         printf("%s [*] Error rebooting device, please disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
@@ -1060,7 +1066,7 @@ int main(int argc, char *argv[]) {
 	
 	//connect to hack afcd
     connectAFCHack(1); //tell user to tap the app
-    
+
     if (symlinkRdisk() != 0) {
         return -1;
     }
@@ -1072,7 +1078,7 @@ int main(int argc, char *argv[]) {
     //rebooting
     if (rebootDevice() != 0) {
         printf("%s [*] Error rebooting device, please quickly disconnect, reboot manually and reconnect\n%s",KRED,KNRM);
-        sleep(100);
+        sleep(60);
     }
     
     printf(" [*] Waiting for the device to reconnect...\n");
@@ -1082,8 +1088,7 @@ int main(int argc, char *argv[]) {
 	printf(" [*] Device found! Continuing\n\n");
 	
     
-    connectAFCHack(0); //don't tell user to tap the app
-	
+    connectAFCHack(0); //don't tell user to tap the app   
     
     
 	// Now the userland portion is almost finished
@@ -1096,8 +1101,8 @@ int main(int argc, char *argv[]) {
     printf("%s [*] No errors yey :D!%s\n", KGRN, KNRM);
 	//return 0;
 	printf("%s [*] Breakout is complete, you should now have a fully working jailbreak! Enjoy!%s\n", KGRN, KNRM);
-	printf("%s [*] Breakout was written by %stihmstar%s and DarkMalloc et. al.%s\n", KGRN,KRED,KGRN KNRM);
-    printf("%s [*] Thanks a lot to %sx56%s for helping me really out a lot and staying calm while being in one chatroom with me :P %s",KGRN,KRED,KGRN,KNRM);
+	printf("%s [*] Breakout was written by %stihmstar%s and DarkMalloc et. al.%s\n", KGRN,KRED,KGRN,KNRM);
+    printf("%s [*] Thanks a lot to %sx56%s for helping me really out a lot ;D %s\n",KGRN,KRED,KGRN,KNRM);
 	
 	return 0;
 	
